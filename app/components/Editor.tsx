@@ -15,10 +15,13 @@ import {
   $getSelection,
   $isRangeSelection,
   EditorState,
-  $createParagraphNode
+  $createParagraphNode,
+  $getRoot
 } from 'lexical';
-import { INSERT_ORDERED_LIST_COMMAND, INSERT_UNORDERED_LIST_COMMAND } from '@lexical/list';
+import { $generateHtmlFromNodes } from '@lexical/html';
+import { INSERT_ORDERED_LIST_COMMAND, INSERT_UNORDERED_LIST_COMMAND, REMOVE_LIST_COMMAND } from '@lexical/list';
 import { $createHeadingNode, $isHeadingNode, HeadingTagType } from '@lexical/rich-text';
+import { $isListNode } from '@lexical/list';
 import { $setBlocksType } from '@lexical/selection';
 import { useEffect, useState } from 'react';
 
@@ -47,6 +50,7 @@ function ToolbarPlugin() {
   const [editor] = useLexicalComposerContext();
   const [isBold, setIsBold] = useState(false);
   const [blockType, setBlockType] = useState('paragraph');
+  const [isInList, setIsInList] = useState(false);
 
   useEffect(() => {
     return editor.registerUpdateListener(({ editorState }) => {
@@ -60,8 +64,14 @@ function ToolbarPlugin() {
             ? anchorNode
             : anchorNode.getTopLevelElementOrThrow();
 
+          const parentElement = element.getParent();
+          const inList = $isListNode(parentElement);
+          setIsInList(inList);
+
           if ($isHeadingNode(element)) {
             setBlockType(element.getTag());
+          } else if (inList) {
+            setBlockType('list');
           } else {
             setBlockType('paragraph');
           }
@@ -84,12 +94,16 @@ function ToolbarPlugin() {
   };
 
   const formatParagraph = () => {
-    editor.update(() => {
-      const selection = $getSelection();
-      if ($isRangeSelection(selection)) {
-        $setBlocksType(selection, () => $createParagraphNode());
-      }
-    });
+    if (isInList) {
+      editor.dispatchCommand(REMOVE_LIST_COMMAND, undefined);
+    } else {
+      editor.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          $setBlocksType(selection, () => $createParagraphNode());
+        }
+      });
+    }
   };
 
   const insertNumberedList = () => {
@@ -110,7 +124,7 @@ function ToolbarPlugin() {
               ? 'bg-gray-600 text-white border-2 border-gray-700 shadow-md'
               : 'bg-white text-gray-700 border-2 border-gray-300 hover:bg-gray-50 hover:border-gray-400 shadow-sm'
           }`}
-          title="Normal Text"
+          title={isInList ? "Keluar dari List / Normal Text" : "Normal Text"}
         >
           P
         </button>
@@ -201,13 +215,21 @@ const initialConfig = {
   ],
 };
 
-export default function Editor() {
-  const onChange = (editorState: EditorState) => {
+interface EditorProps {
+  onContentChange?: (content: { text: string; html: string; json: string }) => void;
+}
+
+export default function Editor({ onContentChange }: EditorProps) {
+  const onChange = (editorState: EditorState, editor: any) => {
     editorState.read(() => {
-      // You can read the editor state here
-      // const root = $getRoot();
-      // const textContent = root.getTextContent();
-      // console.log(textContent);
+      const json = JSON.stringify(editorState.toJSON());
+      const root = $getRoot();
+      const text = root.getTextContent();
+      const html = $generateHtmlFromNodes(editor, null);
+
+      if (onContentChange) {
+        onContentChange({ text, html, json });
+      }
     });
   };
 
